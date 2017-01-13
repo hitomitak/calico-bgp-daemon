@@ -1,15 +1,28 @@
-
-CALICO_BUILD?=calico/go-build
+CALICO_BUILD?=ppc64le/golang:1.7.3
 SRC_FILES=$(shell find . -type f -name '*.go')
 GOBGPD_VERSION?=$(shell git describe --tags --dirty)
-CONTAINER_NAME?=calico/gobgpd
+#CONTAINER_NAME?=calico/gobgpd
+#
 
-vendor:
+
+build-containerized: clean vendor dist/gobgp
+	mkdir -p dist
+	docker run --rm \
+	-v ${PWD}:/go/src/github.com/projectcalico/calico-bgp-daemon \
+	-v ${PWD}/dist:/go/src/github.com/projectcalico/calico-bgp-daemon/dist \
+	-e LOCAL_USER_ID=`id -u $$USER` \
+		$(CALICO_BUILD) sh -c '\
+			cd /go/src/github.com/projectcalico/calico-bgp-daemon && \
+			make binary'
+vendor: glide
 	docker run --rm -v ${PWD}:/go/src/github.com/projectcalico/calico-bgp-daemon:rw --entrypoint=sh \
-    dockerepo/glide -c \
+    glide-ppc64le -c \
 	'cd /go/src/github.com/projectcalico/calico-bgp-daemon; \
 	glide install -strip-vcs -strip-vendor --cache; \
 	chown $(shell id -u):$(shell id -u) -R vendor'
+
+glide:
+	docker build -t glide-ppc64le - < Dockerfile.glide
 
 binary: dist/gobgpd
 
@@ -21,23 +34,13 @@ dist/gobgp:
 	'mkdir -p /go/code && go get github.com/osrg/gobgp/gobgp && cp /go/bin/gobgp /go/code && \
 	chown $(shell id -u):$(shell id -g) /go/code/gobgp'
 
-dist/gobgpd: $(SRC_FILES) vendor
+dist/gobgpd: $(SRC_FILES) 
 	mkdir -p $(@D)
 	go build -v -o dist/calico-bgp-daemon \
 	-ldflags "-X main.VERSION=$(GOBGPD_VERSION) -s -w" main.go
 
-build-containerized: clean vendor dist/gobgp
-	mkdir -p dist
-	docker run --rm \
-	-v ${PWD}:/go/src/github.com/projectcalico/calico-bgp-daemon \
-	-v ${PWD}/dist:/go/src/github.com/projectcalico/calico-bgp-daemon/dist \
-	-e LOCAL_USER_ID=`id -u $$USER` \
-		$(CALICO_BUILD) sh -c '\
-			cd /go/src/github.com/projectcalico/calico-bgp-daemon && \
-			make binary'
-
-$(CONTAINER_NAME): build-containerized
-	docker build -t $(CONTAINER_NAME) .
+#$(CONTAINER_NAME): build-containerized
+#	docker build -t $(CONTAINER_NAME) .
 
 release: clean
 ifndef VERSION
