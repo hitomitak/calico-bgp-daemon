@@ -1,4 +1,4 @@
-CALICO_BUILD?=ppc64le/golang:1.7.3
+CALICO_BUILD?=hitomitak/go-build-ppc64le
 SRC_FILES=$(shell find . -type f -name '*.go')
 GOBGPD_VERSION?=$(shell git describe --tags --dirty)
 #CONTAINER_NAME?=calico/gobgpd
