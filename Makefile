@@ -1,46 +1,45 @@
 CALICO_BUILD?=hitomitak/go-build-ppc64le
 SRC_FILES=$(shell find . -type f -name '*.go')
 GOBGPD_VERSION?=$(shell git describe --tags --dirty)
+PACKAGE_NAME?=github.com/projectcalico/calico-bgp-daemon
+LOCAL_USER_ID?=$(shell id -u $$USER)
 #CONTAINER_NAME?=calico/gobgpd
 #
-
 
 build-containerized: clean vendor dist/gobgp
 	mkdir -p dist
 	docker run --rm \
-	-v ${PWD}:/go/src/github.com/projectcalico/calico-bgp-daemon \
-	-v ${PWD}/dist:/go/src/github.com/projectcalico/calico-bgp-daemon/dist \
-	-e LOCAL_USER_ID=`id -u $$USER` \
+	-v $(CURDIR):/go/src/$(PACKAGE_NAME) \
+	-v $(CURDIR)/dist:/go/src/$(PACKAGE_NAME)/dist \
+	-e LOCAL_USER_ID=$(LOCAL_USER_ID) \
 		$(CALICO_BUILD) sh -c '\
-			cd /go/src/github.com/projectcalico/calico-bgp-daemon && \
+			cd /go/src/$(PACKAGE_NAME) && \
 			make binary'
-vendor: glide
-	docker run --rm -v ${PWD}:/go/src/github.com/projectcalico/calico-bgp-daemon:rw --entrypoint=sh \
-    glide-ppc64le -c \
-	'cd /go/src/github.com/projectcalico/calico-bgp-daemon; \
-	glide install -strip-vcs -strip-vendor --cache; \
-	chown $(shell id -u):$(shell id -u) -R vendor'
+vendor: glide.yaml
+	mkdir -p $(HOME)/.glide
+	docker run --rm \
+    -v $(CURDIR):/go/src/$(PACKAGE_NAME):rw \
+    -v $(HOME)/.glide:/home/user/.glide:rw --entrypoint=sh \
+    glide-ppc64le -c ' \
+		  cd /go/src/$(PACKAGE_NAME) && \
+      glide install -strip-vendor'
 
-glide:
+
+glide.yaml:
 	docker build -t glide-ppc64le - < Dockerfile.glide
 
 binary: dist/gobgpd
 
 dist/gobgp:
 	mkdir -p $(@D)
-	docker run --rm -v `pwd`/dist:/go/code \
-	-e LOCAL_USER_ID=`id -u $$USER` \
-	$(CALICO_BUILD) sh -c \
-	'mkdir -p /go/code && go get github.com/osrg/gobgp/gobgp && cp /go/bin/gobgp /go/code && \
-	chown $(shell id -u):$(shell id -g) /go/code/gobgp'
+	docker run --rm -v $(CURDIR)/dist:/go/bin \
+	-e LOCAL_USER_ID=$(LOCAL_USER_ID) \
+	$(CALICO_BUILD) go get -v github.com/osrg/gobgp/gobgp
 
 dist/gobgpd: $(SRC_FILES) 
 	mkdir -p $(@D)
 	go build -v -o dist/calico-bgp-daemon \
-	-ldflags "-X main.VERSION=$(GOBGPD_VERSION) -s -w" main.go
-
-#$(CONTAINER_NAME): build-containerized
-#	docker build -t $(CONTAINER_NAME) .
+	-ldflags "-X main.VERSION=$(GOBGPD_VERSION) -s -w" main.go ipam.go
 
 release: clean
 ifndef VERSION
